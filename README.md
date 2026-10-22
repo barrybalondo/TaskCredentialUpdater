@@ -1,15 +1,10 @@
 # TaskCredentialUpdater
 
-A small Windows-only .NET 8 console application that retrieves the current service-account password from an HTTPS API, then updates the stored password for an *existing* Windows Scheduled Task. It does **not** change the Active Directory account password itself.
+A small Windows-only .NET 8 console application that retrieves the current account password from an HTTPS API and updates the stored credentials for an **existing local Windows Scheduled Task**. The target task is selected through configuration. Its actions, triggers, and settings are retained.
 
-The application is used in a setup with two scheduled tasks:
+The main execution requirement is that the updater runs **without a stored logon password**, using an account with **local administrator rights** and **Run with highest privileges** enabled. Configure its scheduled task with **Do not store password** (S4U). These are Task Scheduler deployment settings; the application does not configure its own logon mode or elevate itself.
 
-| Documentation label | Role | Logon mode |
-| --- | --- | --- |
-| Job 1 (S1): updater task | Runs `TaskCredentialUpdater.exe` to refresh Job 2's stored password. | **Do not store password** (S4U). |
-| Job 2 (S2): target task | The existing task, such as `MachineChecker`, that performs its normal work. | **Stored password** (`TaskLogonType.Password`). |
-
-Both tasks use the **same domain service account**. Job 1, Job 2, S1, and S2 are labels for these task configurations; the actual task names can be chosen independently. The project and application name is `TaskCredentialUpdater`.
+The retrieved password is supplied to the local Task Scheduler service for the target task. The application does not change the account password itself.
 
 ## Open in Visual Studio
 
@@ -27,7 +22,7 @@ Edit `TaskCredentialUpdater/appsettings.json`:
 }
 ```
 
-No service-account password, machine certificate, or certificate thumbprint is stored or loaded by the console application.
+No account password is stored in configuration. The application retrieves it from the API during each run.
 
 `ApiUrl` is the complete HTTPS endpoint, including any non-secret query parameters. There is no separate `CredentialKey` setting; the example URL includes that lookup name in the query string. The client uses the configured URL without constructing or interpreting its query parameters.
 
@@ -49,27 +44,24 @@ Expected authorized response:
 
 Return `Cache-Control: no-store` on the API response so HTTP caches do not store it. The endpoint returns the current password; it does not rotate the account password.
 
-The request sends no machine name, registration identifier, token, or client certificate. The API or its hosting infrastructure must obtain the caller's machine identity from a trusted source and match it to the registration. A registration record or caller-supplied machine name alone does not prove which machine made the request. The mechanism for establishing that identity belongs to the API deployment and is outside this client project's scope. Running Job 1 with S4U does not automatically authenticate HTTP requests as the computer account.
-
 For an unrecognized machine or a machine without permission for the requested credential, return `401` or `403` without a password. The client treats non-success responses as failures and does not update the scheduled task.
 
 ## Task Scheduler setup
 
-1. Job 2 (`MachineChecker`) already runs as the designated domain service account using a **stored password** (`TaskLogonType.Password`), with network permissions.
-2. Job 1 runs as the same account but with **Do not store password** (S4U). For the intended local-administrator setup, enable **Run with highest privileges** so the updater has effective administrative permissions to update Job 2. The target task's permissions must allow the update.
-3. The Job 1 action launches `TaskCredentialUpdater.exe` from the published directory. Schedule it after rotation or periodically to reconcile the task password.
-4. Verify that Job 2 executes successfully after credential update. Avoid overlapping runs and plan for failures during rotation.
+1. Identify the existing local task whose stored credentials need updating. It must use **password logon** (`TaskLogonType.Password`). Set `TaskPath` to its full path and `AccountName` to its existing run-as account.
+2. Create a scheduled task to launch `TaskCredentialUpdater.exe` from the published directory. Select **Run whether user is logged on or not** and **Do not store password** (S4U).
+3. Run the updater under an account with **local administrator rights** and select **Run with highest privileges**. The target task's permissions must allow the update.
+4. Schedule the updater after password rotation or periodically to refresh the target task's stored credentials. Verify the update and the target task's next run on Windows.
 
-Updating Job 2 uses the local Task Scheduler service. It does not require Job 1 to authenticate to another computer or know Job 2's previous stored password. The updater supplies the newly retrieved password when re-registering Job 2 for password logon. Job 1's ability to reach the credential API is a separate operation to verify under its actual S4U execution context.
+The updater uses the local Task Scheduler service and supplies the newly retrieved password when re-registering the target task. It does not need the target task's previous stored password.
 
-The updater combines `TaskCreation.Update` with `TaskCreation.IgnoreRegistrationTriggers` to suppress runs caused by re-registration. Existing scheduled triggers remain active, so Job 2 can still run at its normal scheduled time. Verify this behavior on Windows with a harmless test task containing a registration trigger before deploying to Job 2.
+The updater combines `TaskCreation.Update` with `TaskCreation.IgnoreRegistrationTriggers` to suppress runs caused by re-registration. Existing scheduled triggers remain active, so the target task can still run at its normal scheduled time. Verify this behavior on Windows with a harmless test task containing a registration trigger before deployment.
 
 ## Security notes
 
 - The API must verify the calling machine against its registration and authorize access to the requested credential. This client deliberately does not add authentication credentials.
 - Never store or log the returned password or raw API response. Use trusted TLS and `Cache-Control: no-store` on API responses.
 - Current updater validates that the target task is under the expected account and uses password logon, then re-registers it with `TaskCreation.Update | TaskCreation.IgnoreRegistrationTriggers` to preserve its schedule/actions/settings and suppress registration-trigger runs.
-- The account used here may be an administrator on multiple computers; securing the API and machine is critical.
 - This is sample code and has not been compiled or tested against Windows Task Scheduler in this environment.
 
 ## Logging
