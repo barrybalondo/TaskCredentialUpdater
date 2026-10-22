@@ -28,23 +28,19 @@ No account password is stored in configuration. The application retrieves it fro
 
 Use the same account-name format for `AccountName` as the existing task reports. The comparison ignores capitalization but compares the text directly.
 
-## API contract
+## API integration
 
-The API will be implemented separately. The current provisional contract uses an HTTPS GET without a request body or added authentication credentials. The API is responsible for identifying the calling machine, checking its registration, and authorizing access to the requested credential before returning a password.
+The API design is still in progress. The client currently makes an HTTPS GET without a request body or added authentication credentials. The API handles machine registration and authorization separately.
 
 ```http
 GET /api/task-credentials/resolve?credentialKey=machine-checker
 ```
 
-Expected authorized response:
+The response format and field names have **not been decided**. The current `CredentialApiClient` temporarily parses a JSON object with a `password` property. That is a placeholder in the client skeleton, not an agreed API contract. Update the response parsing once the API response is defined.
 
-```json
-{"password":"<newly rotated password>"}
-```
+Credential responses should use `Cache-Control: no-store` so HTTP caches do not store them.
 
-Return `Cache-Control: no-store` on the API response so HTTP caches do not store it. The endpoint returns the current password; it does not rotate the account password.
-
-For an unrecognized machine or a machine without permission for the requested credential, return `401` or `403` without a password. The client treats non-success responses as failures and does not update the scheduled task.
+The client treats non-success HTTP responses as failures and does not update the scheduled task.
 
 ## Task Scheduler setup
 
@@ -73,14 +69,6 @@ Progress entries record startup, configuration loading, the API request, the loc
 Errors include the normal exception message, inner exceptions, and stack trace when available. Passwords, credential response objects, and API response bodies are not passed as logging arguments. Invalid API JSON is reported with a controlled message without carrying response property paths into the log.
 
 Task paths use Serilog's structured `TaskPath` property instead of string interpolation. To integrate Seq later, add `Serilog.Sinks.Seq` and configure `WriteTo.Seq(...)` alongside the console sink; the existing logging calls can stay. The logger is disposed at the end of the run. A failed credential update exits with code `1`.
-
-## Coding convention
-
-Use `var` for local variables, including `using` declarations and `out` variables.
-
-Use traditional `if` statements for null checks instead of `?? throw` expressions.
-
-`Settings` and `CredentialResponse` use constructor initialization and get-only properties, with a blank line between each public property. JSON deserialization uses `[JsonConstructor]`; no mutable DTO properties are required.
 
 ## Finding the task path
 
