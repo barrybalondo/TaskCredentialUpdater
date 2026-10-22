@@ -1,6 +1,15 @@
-# TaskCredentialUpdater — Job 1
+# TaskCredentialUpdater
 
-A small Windows-only .NET 8 console application that retrieves the current service-account password from an HTTPS API, then updates the stored password for an *existing* Windows Scheduled Task (Job 2). It does **not** change the Active Directory account password itself.
+A small Windows-only .NET 8 console application that retrieves the current service-account password from an HTTPS API, then updates the stored password for an *existing* Windows Scheduled Task. It does **not** change the Active Directory account password itself.
+
+The application is used in a setup with two scheduled tasks:
+
+| Documentation label | Role | Logon mode |
+| --- | --- | --- |
+| Job 1 (S1): updater task | Runs `TaskCredentialUpdater.exe` to refresh Job 2's stored password. | **Do not store password** (S4U). |
+| Job 2 (S2): target task | The existing task, such as `MachineChecker`, that performs its normal work. | **Stored password** (`TaskLogonType.Password`). |
+
+Both tasks use the **same domain service account**. Job 1, Job 2, S1, and S2 are labels for these task configurations; the actual task names can be chosen independently. The project and application name is `TaskCredentialUpdater`.
 
 ## Open in Visual Studio
 
@@ -45,8 +54,6 @@ The request sends no machine name, registration identifier, token, or client cer
 For an unrecognized machine or a machine without permission for the requested credential, return `401` or `403` without a password. The client treats non-success responses as failures and does not update the scheduled task.
 
 ## Task Scheduler setup
-
-Job 1 (S1) and Job 2 (S2) use the **same domain service account** with different logon modes. S1 and S2 describe the two task configurations, not different accounts.
 
 1. Job 2 (`MachineChecker`) already runs as the designated domain service account using a **stored password** (`TaskLogonType.Password`), with network permissions.
 2. Job 1 runs as the same account but with **Do not store password** (S4U). For the intended local-administrator setup, enable **Run with highest privileges** so the updater has effective administrative permissions to update Job 2. The target task's permissions must allow the update.
